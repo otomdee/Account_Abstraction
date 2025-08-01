@@ -18,7 +18,7 @@ contract MinimalAccountTest is Test {
     SendPackedUserOp sendPackedUserOpScript;
     ERC20Mock usdc;
     uint256 constant AMOUNT = 1e18;
-    address randomUser = makeAddr("user");
+    address randomUser = makeAddr("randomUser");
 
     using MessageHashUtils for bytes32;
 
@@ -92,5 +92,69 @@ contract MinimalAccountTest is Test {
         address actualSigner = ECDSA.recover(userOperationHash.toEthSignedMessageHash(), packedUserOp.signature);
 
         assertEq(actualSigner, minimalAccount.owner());
+    }
+
+    function testValidationOfUserOps() public {
+        //tests if MinimalAccount's validateUserOps returns correctly
+
+        bytes memory functionDataForUSDCMint =
+            abi.encodeWithSelector(usdc.mint.selector, address(minimalAccount), AMOUNT);
+
+        // 2. Define the callData for MinimalAccount.execute
+        // This is what the EntryPoint should use to call the smart account(minimalAccount).
+        bytes memory executeCallData = abi.encodeWithSelector(
+            minimalAccount.execute.selector,
+            address(usdc), // dest: the USDC contract
+            0, // value: no ETH sent with this call
+            functionDataForUSDCMint // data: the encoded call to usdc.mint
+        );
+        // 3. Generate the signed PackedUserOperation
+
+        PackedUserOperation memory packedUserOp =
+            sendPackedUserOpScript.generateUserOperation(executeCallData, activeNetworkConfig, address(minimalAccount));
+
+        // 4. Get the hash of the signed PackedUserOperation struct, from the EntryPoint
+        console.logAddress(activeNetworkConfig.entryPoint);
+        bytes32 userOperationHash = IEntryPoint(activeNetworkConfig.entryPoint).getUserOpHash(packedUserOp);
+
+        //random amount for funds
+        uint256 MISSING_FUNDS = 1e18;
+
+        vm.prank(activeNetworkConfig.entryPoint);
+        uint256 validationData = minimalAccount.validateUserOp(packedUserOp, userOperationHash, MISSING_FUNDS);
+
+        assertEq(validationData, 0);
+    }
+
+    function testEntryPointCanExecuteCommands() public {
+        bytes memory functionDataForUSDCMint =
+            abi.encodeWithSelector(usdc.mint.selector, address(minimalAccount), AMOUNT);
+
+        // 2. Define the callData for MinimalAccount.execute
+        // This is what the EntryPoint should use to call the smart account(minimalAccount).
+        bytes memory executeCallData = abi.encodeWithSelector(
+            minimalAccount.execute.selector,
+            address(usdc), // dest: the USDC contract
+            0, // value: no ETH sent with this call
+            functionDataForUSDCMint // data: the encoded call to usdc.mint
+        );
+        // 3. Generate the signed PackedUserOperation
+
+        PackedUserOperation memory packedUserOp =
+            sendPackedUserOpScript.generateUserOperation(executeCallData, activeNetworkConfig, address(minimalAccount));
+
+        //random amount for funds
+        uint256 MISSING_FUNDS = 1e18;
+
+        vm.deal(address(minimalAccount), MISSING_FUNDS);
+
+        PackedUserOperation[] memory packedArray = new PackedUserOperation[](1);
+        packedArray[0] = packedUserOp;
+
+        //for the test environment, we mimic the altmempool node(bundler) with randomUser
+        vm.prank(randomUser);
+        IEntryPoint(activeNetworkConfig.entryPoint).handleOps(packedArray, payable(randomUser));
+
+        assertEq(usdc.balanceOf(address(minimalAccount)), AMOUNT, "MinimalAccount should have minted USDC");
     }
 }
