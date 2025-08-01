@@ -41,6 +41,18 @@ contract MinimalAccount is IAccount, Ownable {
         i_entryPoint = entryPoint;
     }
 
+    receive() external payable {}
+
+    /*//////////////////////////////////////////////////////////////
+                           EXTERNAL FUNCTIONS
+    //////////////////////////////////////////////////////////////*/
+    function execute(address dest, uint256 value, bytes calldata functionData) external requireFromEntryPointOrOwner {
+        (bool success, bytes memory result) = dest.call{value: value}(functionData);
+        if (!success) {
+            revert MinimalAccount__CallFailed(result);
+        }
+    }
+
     function validateUserOp(PackedUserOperation calldata userOp, bytes32 userOpHash, uint256 missingAccountFunds)
         external
         returns (uint256 validationData)
@@ -56,10 +68,6 @@ contract MinimalAccount is IAccount, Ownable {
 
         _payPrefund(missingAccountFunds);
     }
-
-    /*//////////////////////////////////////////////////////////////
-                           EXTERNAL FUNCTIONS
-    //////////////////////////////////////////////////////////////*/
 
     /*//////////////////////////////////////////////////////////////
                            INTERNAL FUNCTIONS
